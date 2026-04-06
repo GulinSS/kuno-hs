@@ -182,6 +182,26 @@ kornKreitzN n =
   in neg ((neg (a 0) /\ ((neg (neg (b n)) ==> b 0) ==> a n))
           /\ mapConj (n - 1) (\i -> (neg (neg (b i)) ==> a (i + 1)) ==> a i))
 
+kornKreitzX :: Int -> Formula
+kornKreitzX n =
+  let a m = atom (m + m)
+      b m = atom (m + m + 1)
+  in (((b n ==> b (n - 1)) ==> a n)
+      /\ mapConj (n - 1) (\i -> (b i ==> a (i + 1)) ==> a i)) ==> a 0
+
+------------------------------------------------------------------------
+-- f1 (unnamed family)
+------------------------------------------------------------------------
+
+-- Invalid: the conclusion atom(n+n+n) is disjoint from the hypothesis
+-- atoms, so the implication cannot be established.
+f1 :: Int -> Formula
+f1 n =
+  let a m = atom m
+      b m = atom (n + m)
+      c m = atom (n + n + m)
+  in mapConj (n - 1) (\i -> (a i ==> b i) ==> c i) ==> atom (n + n + n)
+
 ------------------------------------------------------------------------
 -- Equivalence chains
 ------------------------------------------------------------------------
@@ -218,44 +238,43 @@ assertInvalid :: String -> Formula -> TestTree
 assertInvalid name f = testCase name $
   isTheorem f @?= Refuted
 
+-- | Generate a group of parameterized tests over a range.
+validRange :: String -> (Int -> Formula) -> [Int] -> [TestTree]
+validRange name gen = map (\n -> assertValid (name ++ " " ++ show n) (gen n))
+
+invalidRange :: String -> (Int -> Formula) -> [Int] -> [TestTree]
+invalidRange name gen = map (\n -> assertInvalid (name ++ " " ++ show n) (gen n))
+
 ------------------------------------------------------------------------
 -- Test groups
 ------------------------------------------------------------------------
 
 pigeonholeTests :: TestTree
-pigeonholeTests = testGroup "Pigeonhole"
-  [ assertValid   "pigeonhole_p 1" (pigeonholeP 1)
-  , assertInvalid "pigeonhole_n 1" (pigeonholeN 1)
+pigeonholeTests = testGroup "Pigeonhole" $
+  validRange   "pigeonhole_p" pigeonholeP [1]
+  ++ invalidRange "pigeonhole_n" pigeonholeN [1]
   -- pigeonhole_p 2: does not terminate at depth 50 (should be Proved)
   -- pigeonhole_n 2: not tested (too slow)
-  ]
 
 schwichtTests :: TestTree
-schwichtTests = testGroup "Schwichtenberg"
-  [ assertValid   "schwicht_p 2" (schwichtP 2)
-  , assertValid   "schwicht_p 3" (schwichtP 3)
-  , assertValid   "schwicht_p 4" (schwichtP 4)
-  , assertInvalid "schwicht_n 2" (schwichtN 2)
-  , assertInvalid "schwicht_n 3" (schwichtN 3)
-  ]
+schwichtTests = testGroup "Schwichtenberg" $
+  validRange   "schwicht_p" schwichtP [1..4]
+  ++ invalidRange "schwicht_n" schwichtN [1..5]
 
 kornKreitzTests :: TestTree
-kornKreitzTests = testGroup "Korn-Kreitz"
-  [ assertValid   "korn_kreitz_p 1" (kornKreitzP 1)
-  , assertValid   "korn_kreitz_p 2" (kornKreitzP 2)
-  , assertValid   "korn_kreitz_p 3" (kornKreitzP 3)
-  , assertInvalid "korn_kreitz_n 1" (kornKreitzN 1)
-  , assertInvalid "korn_kreitz_n 2" (kornKreitzN 2)
-  ]
+kornKreitzTests = testGroup "Korn-Kreitz" $
+  validRange   "korn_kreitz_p" kornKreitzP [1..4]
+  ++ invalidRange "korn_kreitz_n" kornKreitzN [1..2]
+  ++ validRange   "korn_kreitz_x" kornKreitzX [1..4]
+
+f1Tests :: TestTree
+f1Tests = testGroup "f1" $
+  invalidRange "f1" f1 [1..4]
 
 equivTests :: TestTree
-equivTests = testGroup "Equivalence chains"
-  [ assertValid   "equiv_p 1" (equivP 1)
-  , assertValid   "equiv_p 2" (equivP 2)
-  , assertValid   "equiv_p 3" (equivP 3)
-  , assertInvalid "equiv_n 1" (equivN 1)
-  , assertInvalid "equiv_n 2" (equivN 2)
-  ]
+equivTests = testGroup "Equivalence chains" $
+  validRange   "equiv_p" equivP [1..3]
+  ++ invalidRange "equiv_n" equivN [1..2]
 
 ------------------------------------------------------------------------
 -- Runner
@@ -266,5 +285,6 @@ main = defaultMain $ testGroup "Weich"
   [ pigeonholeTests
   , schwichtTests
   , kornKreitzTests
+  , f1Tests
   , equivTests
   ]
