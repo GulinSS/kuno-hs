@@ -1,0 +1,174 @@
+-- | Generic dialogue game infrastructure.
+--
+-- A dialogue game starts with a formula φ asserted by the Proponent (P),
+-- against the Opponent (O) who disputes it. Players alternate moves, each
+-- being an attack on or defense of a previous assertion.
+--
+-- This module provides the game state representation and generic operations
+-- (adding moves, querying continuations, win conditions). Logic-specific
+-- rules (particle rules, structural validators, rulesets) live in
+-- separate modules under @Kuno.Logic@.
+--
+-- Reference: Jesse Alama, "Kuno for proof search", arXiv:1405.1864v1
+module Kuno.Dialogue
+  ( Ruleset(..)
+  , Dialogue(..)
+  , dialogueLength
+  , emptyDialogue
+  , addMove
+  , nthMove
+  , nthStatement
+  , lastMove
+  , continuations
+  , nextProponentMoves
+  , nextOpponentMoves
+  , proponentWins
+  , opponentWins
+  , truncateDialogue
+  , dialogueTermsIn
+  , dialogueFreeVariables
+  , moveIsRepetition
+  , mostRecentOpenAttackOn
+  , isAtomicStatement
+  ) where
+
+import Data.Foldable (toList)
+import Data.Sequence (Seq, (|>), ViewR(..))
+import qualified Data.Sequence as Seq
+import qualified Data.Set as Set
+
+import Kuno.Expression
+import Kuno.Move
+
+-- | A ruleset governs which moves are legal in a dialogue
+data Ruleset = Ruleset
+  { rsExpander    :: Dialogue -> [Move]
+  , rsValidator   :: Dialogue -> Bool
+  , rsDescription :: String
+  }
+
+instance Show Ruleset where
+  show = rsDescription
+
+-- | A dialogue game state
+data Dialogue = Dialogue
+  { dPlays          :: Seq Move
+  , dPlaySet        :: Set.Set Move
+  , dTerms          :: Set.Set Term
+  , dFreeVars       :: Set.Set Term
+  , dInitialFormula :: Formula
+  , dRuleset_       :: Ruleset
+  }
+
+instance Show Dialogue where
+  show d = "Dialogue{" ++ show (dialogueLength d) ++ " moves, "
+           ++ showFormula (dInitialFormula d) ++ "}"
+
+dialogueLength :: Dialogue -> Int
+dialogueLength d = 1 + Seq.length (dPlays d)
+
+emptyDialogue :: Formula -> Ruleset -> Dialogue
+emptyDialogue = Dialogue Seq.empty Set.empty Set.empty Set.empty
+
+addMove :: Dialogue -> Move -> Dialogue
+addMove d m = d
+  { dPlays    = dPlays d |> m
+  , dPlaySet  = Set.insert m (dPlaySet d)
+  , dTerms    = dTerms d `Set.union` Set.fromList (moveTermsIn m)
+  , dFreeVars = dFreeVars d `Set.union` Set.fromList (moveFreeVariables m)
+  }
+
+nthMove :: Dialogue -> Int -> Maybe Move
+nthMove d n
+  | n <= 0 = Nothing
+  | n > Seq.length (dPlays d) = Nothing
+  | otherwise = Just (Seq.index (dPlays d) (n - 1))
+
+nthStatement :: Dialogue -> Int -> Statement
+nthStatement d 0 = FormulaS (dInitialFormula d)
+nthStatement d n = case nthMove d n of
+  Just m  -> moveStatement m
+  Nothing -> FormulaS (dInitialFormula d)
+
+lastMove :: Dialogue -> Maybe Move
+lastMove d = case Seq.viewr (dPlays d) of
+  EmptyR -> Nothing
+  _ :> m -> Just m
+
+truncateDialogue :: Dialogue -> Int -> Dialogue
+truncateDialogue d n =
+  let plays' = Seq.take n (dPlays d)
+      playsList = toList plays'
+  in d { dPlays    = plays'
+       , dPlaySet  = Set.fromList playsList
+       , dTerms    = Set.fromList (concatMap moveTermsIn playsList)
+       , dFreeVars = Set.fromList (concatMap moveFreeVariables playsList)
+       }
+
+dialogueTermsIn :: Dialogue -> [Term]
+dialogueTermsIn = Set.toList . dTerms
+
+dialogueFreeVariables :: Dialogue -> [Term]
+dialogueFreeVariables = Set.toList . dFreeVars
+
+-- Dialogue analysis
+
+-- openAttackIndices :: Dialogue -> [Int]
+-- openAttackIndices d = case dPlays d of
+--   [] -> []
+--   plays ->
+--     [ i | (m, i) <- zip plays [1..]
+--         , isAttack m
+--         , not $ any (\other -> isDefense other && moveReference other == i)
+--                     (drop i plays)
+--     ]
+
+-- | Find the most recent open attack on the given player
+mostRecentOpenAttackOn :: Player -> Dialogue -> Maybe Int
+mostRecentOpenAttackOn player d = go (dialogueLength d)
+  where
+    attacker = otherPlayer player
+    plays = dPlays d
+    go i
+      | i < 1 = Nothing
+      | otherwise =
+          case nthMove d i of
+            Just m | movePlayer m == attacker && isAttack m ->
+              let tail_ = Seq.drop i plays
+              in if not $ any (\other -> movePlayer other == player
+                                     && isDefense other
+                                     && moveReference other == i) tail_
+                 then Just i
+                 else go (i - 1)
+            _ -> go (i - 1)
+
+isAtomicStatement :: Statement -> Bool
+isAtomicStatement (FormulaS f) = isAtomic f
+isAtomicStatement _ = False
+
+moveIsRepetition :: Dialogue -> Move -> Bool
+moveIsRepetition d m = m `Set.member` dPlaySet d
+
+-- Continuations and win conditions
+
+continuations :: Dialogue -> [Move]
+continuations d =
+  let rs = dRuleset_ d
+      moves = rsExpander rs d
+  in nubOrd moves
+
+nextProponentMoves :: Dialogue -> [Move]
+nextProponentMoves = filter isProponentMove . continuations
+
+nextOpponentMoves :: Dialogue -> [Move]
+nextOpponentMoves = filter isOpponentMove . continuations
+
+proponentWins :: Dialogue -> Bool
+proponentWins d = case lastMove d of
+  Just m -> isProponentMove m && null (nextOpponentMoves d)
+  Nothing -> False
+
+opponentWins :: Dialogue -> Bool
+opponentWins d = case lastMove d of
+  Just m -> isOpponentMove m && null (nextProponentMoves d)
+  Nothing -> False

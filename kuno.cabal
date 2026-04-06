@@ -1,0 +1,54 @@
+cabal-version:   3.0
+name:            kuno
+version:         0.1.0.0
+synopsis:        A theorem prover for intuitionistic logic based on Lorenzen dialogue games
+license:         BSD-3-Clause
+author:          Jesse Alama
+build-type:      Simple
+
+library
+  exposed-modules:
+    Kuno.Expression
+    Kuno.TPTP
+    Kuno.Parse
+    Kuno.Translation
+    Kuno.Move
+    Kuno.Dialogue
+    Kuno.Logic
+    Kuno.Logic.Intuitionistic
+    Kuno.Strategy
+    Kuno.DialogueSearch
+  hs-source-dirs:   src
+  default-language: Haskell2010
+  build-depends:
+    base        >= 4.14 && < 5,
+    containers  >= 0.6,
+    megaparsec  >= 9.0,
+    text        >= 1.2,
+    filepath    >= 1.4,
+    directory   >= 1.3
+  ghc-options: -Wall -Wno-name-shadowing
+
+test-suite famous-formulas
+  type:             exitcode-stdio-1.0
+  main-is:          FamousFormulas.hs
+  hs-source-dirs:   test
+  default-language: Haskell2010
+  build-depends:
+    base       >= 4.14 && < 5,
+    kuno,
+    tasty      >= 1.4,
+    tasty-hunit >= 0.10
+  ghc-options: -Wall -Wno-name-shadowing
+
+executable kuno
+  main-is:          Main.hs
+  hs-source-dirs:   app
+  default-language: Haskell2010
+  build-depends:
+    base            >= 4.14 && < 5,
+    kuno,
+    optparse-applicative >= 0.16,
+    filepath        >= 1.4,
+    directory       >= 1.3
+  ghc-options: -Wall -Wno-name-shadowing
